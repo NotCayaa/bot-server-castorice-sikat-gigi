@@ -7,7 +7,7 @@ const groq = new Groq({
 });
 
 const { Client, Intents } = require('discord.js');
-const token = 'love you';
+const token = 'Love you';
 
 const client = new Client({
     intents: [
@@ -39,7 +39,6 @@ async function handleMessage(message) {
 
     if (message.author.bot) return;
 
-        // === LLM: !ditos <pesan> ===
     if (message.content.startsWith('!ditos ')) {
     const prompt = message.content.slice('!ditos '.length).trim();
     if (!prompt) {
@@ -48,7 +47,7 @@ async function handleMessage(message) {
 
     try {
         const completion = await groq.chat.completions.create({
-            model: 'llama-3.3-70b-versatile', // model default Groq yang kenceng :contentReference[oaicite:0]{index=0}
+            model: 'llama-3.3-70b-versatile', 
             messages: [
                 {
                     role: 'system',
