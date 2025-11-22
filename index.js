@@ -7,7 +7,7 @@ const groq = new Groq({
 });
 
 const { Client, Intents } = require('discord.js');
-const token = 'MTE1OTExOTg3OTA3MzQ0Nzk0Nw.GWbAkG.OALGPRNoZJsBf-Cs3_FkM_p5VSke_XdV5_Trjk';
+const token = 'love you';
 
 const client = new Client({
     intents: [
