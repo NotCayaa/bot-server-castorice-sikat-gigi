@@ -1,1 +1,2 @@
-node index.js
+@echo off
+node start-bot.js
