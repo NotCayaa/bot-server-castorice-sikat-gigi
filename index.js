@@ -5,22 +5,20 @@ const ytSearch = require('yt-search');
 const ytpl = require('ytpl');
 const axios = require('axios');
 const sharp = require('sharp');
+const { exec } = require('child_process');
+const os = require('os');
 
 const OWNER_ID = '756989869108101243';
 const ERROR_CHANNEL_ID = '1442006544030896138';
+const MAIN_GUILD_ID = '1110264688102617141';
+const WELCOME_CHANNEL_ID = '1442463723385126933';
 
-const fs = require('fs');
+const fs = require('fs').promises;
+const path = require('path');
+
+const MEMORY_FILE = path.join(__dirname, 'memory.json');
 const SETTINGS_FILE = './settings.json';
 let settings = {};
-
-try {
-  if (fs.existsSync(SETTINGS_FILE)) {
-    settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf8'));
-  }
-} catch (err) {
-  console.error('Gagal load settings.json:', err);
-  settings = {};
-}
 
 function getPrefixForGuild(guildId) {
   if (!guildId) return '';
@@ -63,7 +61,7 @@ const {
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
+const apiKey = process.env.WEATHER_API_KEY;
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
 });
@@ -73,12 +71,148 @@ const token = process.env.DISCORD_TOKEN;
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildPresences, 
   ],
   partials: [Partials.Channel],
+});
+
+client.on('guildMemberAdd', async (member) => {
+  if (member.guild.id !== MAIN_GUILD_ID) return;
+
+  const channel =
+    member.guild.channels.cache.get(WELCOME_CHANNEL_ID) ||
+    member.guild.systemChannel;
+
+  if (!channel || !channel.isTextBased()) {
+    console.log('Welcome: channel welcome gak ketemu / bukan text channel');
+    return;
+  }
+
+  const me = member.guild.members.me;
+  if (!channel.permissionsFor(me)?.has('SendMessages')) {
+    console.log('Welcome: bot gak punya permission buat kirim pesan di channel welcome');
+    return;
+  }
+
+  const avatarURL = member.user.displayAvatarURL({
+    size: 256,
+    dynamic: true,
+  });
+
+  const embed = {
+    title: '👋 Selamat Datang!',
+    description:
+      `Halo ${member}!\n` +
+      `Selamat datang di **${member.guild.name}**.\n` +
+      `Coba \`d!help\` buat liat list command yang gwe punya.`,
+    color: 0x57f287, // hijau soft
+    thumbnail: { url: avatarURL },
+    fields: [
+      {
+        name: 'Akun',
+        value: `${member.user.tag}`,
+        inline: true,
+      },
+      {
+        name: 'User ID',
+        value: member.id,
+        inline: true,
+      },
+      {
+        name: 'Member ke-',
+        value: `${member.guild.memberCount}`,
+        inline: true,
+      },
+    ],
+    timestamp: new Date().toISOString(),
+    footer: {
+      text: 'Welcome to the server 🌟',
+    },
+  };
+
+  try {
+    await channel.send({ embeds: [embed] });
+    console.log('Welcome embed terkirim untuk', member.user.tag);
+  } catch (err) {
+    console.error('Welcome error:', err);
+  }
+});
+
+client.on('guildMemberRemove', async (member) => {
+  if (member.guild.id !== MAIN_GUILD_ID) return;
+
+  const channel =
+    member.guild.channels.cache.get(WELCOME_CHANNEL_ID) ||
+    member.guild.systemChannel;
+
+  if (!channel || !channel.isTextBased()) {
+    console.log('Leave: channel welcome gak ketemu / bukan text channel');
+    return;
+  }
+
+  const me = member.guild.members.me;
+  if (!channel.permissionsFor(me)?.has('SendMessages')) {
+    console.log('Leave: bot gak punya permission buat kirim pesan di channel welcome');
+    return;
+  }
+
+  // Skip kalau yang keluar itu bot
+  if (member.user?.bot) {
+    console.log('Leave: yang keluar bot, skip:', member.user.tag);
+    return;
+  }
+
+  const avatarURL = member.user.displayAvatarURL({
+    size: 256,
+    dynamic: true,
+  });
+
+  let joinedText = 'Tidak diketahui';
+  if (member.joinedAt) {
+    joinedText = member.joinedAt.toLocaleString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  const embed = {
+    title: '🚪 Ada yang cabut',
+    description:
+      `**${member.user.tag}** keluar dari **${member.guild.name}**.\n` +
+      `Semoga bukan gara-gara gwe ya...`,
+    color: 0xed4245, // merah soft
+    thumbnail: { url: avatarURL },
+    fields: [
+      {
+        name: 'User ID',
+        value: member.id,
+        inline: true,
+      },
+      {
+        name: 'Gabung sejak',
+        value: joinedText,
+        inline: true,
+      },
+    ],
+    timestamp: new Date().toISOString(),
+    footer: {
+      text: 'Goodbye 👋',
+    },
+  };
+
+  try {
+    await channel.send({ embeds: [embed] });
+    console.log('Leave embed terkirim untuk', member.user.tag);
+  } catch (err) {
+    console.error('Leave error:', err);
+  }
 });
 
 async function reportErrorToDiscord(err) {
@@ -137,26 +271,62 @@ client.once('ready', () => {
 });
 
 const commands = {
-  'd!help': 'Menampilkan semua command',
-  'd!ping': 'Tes bot',
-  'd!chat/d!c <pesan>': 'Ngobrol ama Bot Ditos pake LLM Groq',
-  'd!join': 'Bot join voice channel',
-  'd!leave': 'Bot keluar dari voice channel',
+  'help': 'Menampilkan semua command',
+  'ping': 'Tes bot',
+  'chat/c': 'Ngobrol ama Bot Ditos pake LLM Groq',
+  'join': 'Bot join vois',
+  'leave': 'Bot keluar dari vois',
   'halo': 'Bot menyapa balik',
-  'd!play <judul atau link>': 'Memutar musik dari YouTube',
-  'd!skip': 'Melewati lagu yang sedang diputar',
-  'd!stop': 'Menghentikan pemutaran musik dan keluar dari voice channel',
-  'd!sb <nama>': 'Memutar soundboard lokal (list soundboard: acumalaka, ahlele, tengkorak)',
-  'd!joke': 'Random dad jokes',
-  'd!userinfo @user': 'Info lengkap tentang user',
-  'd!serverinfo': 'Info tentang server',
-  'd!clear': 'Clear history chat dengan bot',
+  'play': 'Setel lagu dari YouTube',
+  'skip': 'Skip lagu yang lagi disetel',
+  'stop': 'Berhenti play lagu dan keluar dari vois',
+  'sb': 'Putar soundboard (list: acumalaka, ahlele, tengkorak)',
+  'joke': 'Random dad jokes',
+  'ui': 'Info lengkap tentang user',
+  'si': 'Info tentang server',
+  'clear': 'Clear history chat dengan bot',
+  'rem': 'Saved Memory kaya di ChatGPT',
+  'rec': 'Ngecek Saved Memory',
+  'forg': 'Menghapus Saved Memory, bisa hapus all atau berdasarkan nomor (d!rec buat liat nomornya)',
+  'stats': 'Cek status bot dan resource usage',
+  'w': 'Cek cuaca di lokasi tertentu',
+  'pilih': 'Bot bakal milih satu dari pilihan yang dikasih',
 };
 
 const musicQueues = new Map();
 const conversationHistory = new Map();
 
 const ytdlExec = require('yt-dlp-exec');
+
+async function loadMemory() { // Load memory dari file JSON
+  try {
+    let raw = null;
+
+    try {
+      raw = await fs.readFile(MEMORY_FILE, 'utf8');
+    } catch {
+      // file belum ada → balikin object kosong
+      return {};
+    }
+
+    return JSON.parse(raw || '{}');
+  } catch (err) {
+    console.error('Gagal load memory:', err);
+    return {};
+  }
+}
+
+async function saveMemory(memory) { // Save memory ke file JSON
+  try {
+    await fs.writeFile(
+      MEMORY_FILE,
+      JSON.stringify(memory, null, 2),
+      'utf8'
+    );
+  } catch (err) {
+    console.error('Gagal save memory:', err);
+  }
+}
 
 async function playNext(guildId) { // Auto play musik selanjutnya, queue, antrian 
   const queue = musicQueues.get(guildId);
@@ -295,7 +465,7 @@ async function analyzeImageWithGemini(imageUrl) { // Liat gambar pake Gemini
             data: base64Image,
           },
         },
-        'Deskripsikan gambar ini dengan detail tapi singkat dalam bahasa Indonesia. Fokus ke hal-hal penting yang ada di gambar.',
+        'Deskripsikan gambar ini dengan detail tapi jangan kepanjangan dalam bahasa Indonesia. Fokus ke hal-hal penting yang ada di gambar.',
       ]),
       timeoutPromise
     ]);
@@ -372,14 +542,55 @@ if (lower.startsWith(prefix)) {
         history.splice(0, history.length - 20);
       }
 
+            const memory = await loadMemory();
+      const userMemory = memory[userId];
+
+      let memoryPrompt = null;
+      if (userMemory) {
+        let notes = [];
+        if (Array.isArray(userMemory.notes)) {
+          notes = userMemory.notes;
+        } else if (userMemory.note) {
+          notes = [
+            {
+              note: userMemory.note,
+              updatedAt: userMemory.updatedAt || new Date().toISOString(),
+            },
+          ];
+        }
+
+        if (notes.length) {
+          const noteLines = notes
+            .map((n, idx) => `- (${idx + 1}) ${n.note}`)
+            .join('\n');
+
+          memoryPrompt = {
+            role: 'system',
+            content:
+              `Info tambahan tentang user yang sedang ngobrol denganmu:\n` +
+              `- Username: ${userMemory.username || message.author.tag}\n` +
+              `- Catatan:\n${noteLines}\n\n` +
+              `Gunakan info ini untuk menyesuaikan gaya bicaramu ke user ini, ` +
+              `tapi jangan bilang ke user kalau ini diambil dari catatan atau database.`,
+          };
+        }
+      }
+
       const completion = await groq.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
         messages: [
           {
             role: 'system',
             content:
-              'Kamu adalah bot Discord bernama Ditos. Gaya bicara santai, campur Indonesia dan sedikit English. Suka ngejokes, konyol, kadang nyolot dikit tapi tetap bantu jelasin dengan jelas dan ringkas. Jangan terlalu panjang, jangan formal. Kamu juga jarang tetapi akan menggunakan kata seperti "Bjirlah, anjeng, biji" Kamu akan berbicara seadanya dan frontal (Contoh: "Lah gwa mah vergil, lah elu mirror demon", "Goofy ass looking ahh". Kamu tidak akan menggunakan emoji. Kamu juga akan memberi informasi sesingkat mungkin. PENTING: Kalo ada text "[Ada gambar: ...]" di pesan user, itu artinya user kirim gambar dan kamu bisa "liat" gambar tersebut lewat deskripsi yang dikasih. Jangan bilang kamu gak bisa liat gambar, langsung aja respon sesuai deskripsinya. Jangan repetitif',
+              'Kamu adalah bot Discord bernama Ditos. Gaya bicara santai, campur Indonesia dan sedikit English. ' +
+              'Suka ngejokes, konyol, kadang nyolot dikit tapi tetap bantu jelasin dengan jelas dan ringkas. Jangan terlalu panjang, jangan formal. ' +
+              'Kamu juga jarang tetapi akan menggunakan kata seperti "Bjirlah, anjeng, biji" Kamu akan berbicara seadanya dan frontal (Contoh: "Lah gwa mah vergil, lah elu mirror demon", "Goofy ass looking ahh". ' +
+              'Kamu tidak akan menggunakan emoji. Kamu juga akan memberi informasi sesingkat mungkin. ' +
+              'PENTING: Kalo ada text "[Ada gambar: ...]" di pesan user, itu artinya user kirim gambar dan kamu bisa "liat" gambar tersebut lewat deskripsi yang dikasih. ' +
+              'Jangan bilang kamu gak bisa liat gambar, langsung aja respon sesuai deskripsinya. Jangan repetitif, jangan keseringan pake kata-kata yang "lah gw mah vergil" dll, sesekali aja biar terasa moody. ' +
+              'Jangan campur-campur panggilan "Aku, Kamu" sama "lo, Gwe", kalo mau pakai "Aku" lawan katanya itu "Kamu" bukan "Gwe" dan sebaliknya.',
           },
+          ...(memoryPrompt ? [memoryPrompt] : []),
           ...history,
         ],
         temperature: 0.8,
@@ -409,16 +620,91 @@ if (lower.startsWith(prefix)) {
     }
   }
 
-  if (sub === 'help') { // List Command
-    let helpText = `@${message.author.username}, **Daftar Command:**\n\n`;
-    for (const [cmd, desc] of Object.entries(commands)) {
-      helpText += `**${cmd}** — ${desc}\n`;
-    }
-    return message.reply(helpText);
+  if (sub === 'help') { // List Command (refined)
+  const prefix = 'd!'; // optional, biar gampang ganti prefix nanti
+  const cmdList = Object.entries(commands);
+
+  // cari panjang command paling panjang
+  const maxLen = Math.max(...cmdList.map(([cmd]) => cmd.length));
+
+  // generate list compact tapi align rapi
+  const listText = cmdList
+    .map(([cmd, desc]) => {
+      const padded = cmd.padEnd(maxLen + 2, ' ');
+      return `${padded}: ${desc}`;
+    })
+    .join('\n')
+  ;
+
+  const header =
+    `Ditos Help Menu\n` +
+    `Version : 1.0\n` +
+    `Prefix  : ${prefix}\n` +
+    `Owner   : ${message.author.tag}\n\n`;
+
+  const footer =
+    `\nTip:\n` +
+    `- Semua command pake prefix tanda seru '!', artinya harus tambah d! sebelum command.\n` +
+    `- d!help selalu update otomatis sesuai fitur baru`;
+
+  return message.reply(
+    "```" +
+    header +
+    listText +
+    "\n" +
+    footer +
+    "```"
+    );
   }
-  
-  if (sub === 'ping') { // Ping pong test
-    return message.reply('!pong');
+
+  if (sub === 'ping') { // Ping test
+  const msg = await message.reply('Testing ping...');
+
+  const discordPing = msg.createdTimestamp - message.createdTimestamp;
+  const wsPing = client.ws.ping;
+
+  exec('ping -n 1 google.com', (err, stdout) => {
+    let internetPing = null;
+
+    if (!err) {
+      const match = stdout.match(/Average = (\d+)ms/i);
+      if (match) internetPing = parseInt(match[1]);
+    }
+
+    // grafik bar: 10 segmen
+    const bar = (ms) => {
+      if (ms === null) return '──────────';
+
+      // batas grafik
+      const max = 300; // ping 300ms = bar full merah
+      const percent = Math.min(ms / max, 1);
+      const filled = Math.round(percent * 10);
+      const empty = 10 - filled;
+
+      return '▇'.repeat(filled) + '░'.repeat(empty);
+    };
+
+    // warna teks
+    const color = (ms) => {
+      if (ms === null) return '⚪ N/A';
+      if (ms <= 60) return `🟢 ${ms}ms`;
+      if (ms <= 120) return `🟡 ${ms}ms`;
+      return `🔴 ${ms}ms`;
+    };
+
+    msg.edit(
+      `**Discord Message Ping:** ${color(discordPing)}\n` +
+      `${bar(discordPing)}\n\n` +
+
+      `**Discord Gateway Ping:** ${color(wsPing)}\n` +
+      `${bar(wsPing)}\n\n` +
+
+      `**Internet Ping (google.com):** ${color(internetPing)}\n` +
+      `${bar(internetPing)}`
+    );
+  });
+
+    return;
   }
 
   if (sub === 'clear') { // Clear history chat sama bot ditos
@@ -466,7 +752,7 @@ if (lower.startsWith(prefix)) {
     return message.reply('Nooo aku di kik :sob:');
   }
 
-  if (sub === 'joke') {
+  if (sub === 'joke') { // Dad jokes
   try {
     const completion = await groq.chat.completions.create({
       model: 'llama-3.3-70b-versatile',
@@ -492,7 +778,7 @@ if (lower.startsWith(prefix)) {
     }
   }
   
-  if (sub === 'userinfo' || sub === 'ui') {
+  if (sub === 'userinfo' || sub === 'ui') { // User info
   try {
     let targetUser = message.mentions.users.first() || message.author;
     let member = message.guild.members.cache.get(targetUser.id);
@@ -574,7 +860,7 @@ if (lower.startsWith(prefix)) {
     }
   }
 
-  if (sub === 'serverinfo' || sub === 'si') {
+  if (sub === 'serverinfo' || sub === 'si') { // Server info
   try {
     const guild = message.guild;
     
@@ -831,7 +1117,7 @@ if (lower.startsWith(prefix)) {
     return;
   }
 
-  if (sub === 'skip') {
+  if (sub === 'skip') { // Skip lagu
     const queue = musicQueues.get(guildId);
   if (!queue || !queue.songs.length) {
     return message.reply('Skip apaan, gada yang disetel');
@@ -840,7 +1126,7 @@ if (lower.startsWith(prefix)) {
     return message.reply('Oke, skip');
   }
 
-  if (sub === 'stop') {
+  if (sub === 'stop') { // Stop musik
   const queue = musicQueues.get(guildId);
   if (!queue) {
     return message.reply('Stop apaan, gada yang disetel');
@@ -854,7 +1140,7 @@ if (lower.startsWith(prefix)) {
     return message.reply('Nooo aku di kik :sob:');
   }
 
-  if (sub === 'sb') {
+  if (sub === 'sb') { // Soundboard
   if (!voiceChannel) {
     return message.reply(
       'Masuk vois dulu dong kalo mau denger soundboard'
@@ -872,6 +1158,292 @@ if (lower.startsWith(prefix)) {
     return;
   }
 
+  if (sub === 'remember' || sub === 'rem') { // Save Memory
+  const noteText = args.join(' ').trim();
+  if (!noteText) {
+    return message.reply('Mau gwa inget apa? Contoh: `d!remember/d!rem aku anak niga`');
+  }
+
+  const memory = await loadMemory();
+  const userId = message.author.id;
+
+  let userMem = memory[userId] || {};
+  let notes = [];
+
+    if (Array.isArray(userMem.notes)) {
+      notes = userMem.notes;
+    } else if (userMem.note) {
+
+      notes = [
+        {
+          note: userMem.note,
+          updatedAt: userMem.updatedAt || new Date().toISOString(),
+        },
+      ];
+    }
+
+    notes.unshift({
+      note: noteText,
+      updatedAt: new Date().toISOString(),
+    });
+
+    if (notes.length > 3) {
+      notes = notes.slice(0, 3);
+    }
+
+    memory[userId] = {
+      username: message.author.tag,
+      notes,
+    };
+
+  await saveMemory(memory);
+  return message.reply(`Oke, gwa inget: **${noteText}**`);
+  }
+
+  if (sub === 'recall' || sub === 'rec') { // Recall Memory
+  const memory = await loadMemory();
+  const userId = message.author.id;
+  const data = memory[userId];
+
+  if (!data) {
+    return message.reply('Belum ada memory yang di save. Coba pake `d!remember/d!rem` dulu.');
+  }
+
+  let notes = [];
+  if (Array.isArray(data.notes)) {
+    notes = data.notes;
+  } else if (data.note) {
+    notes = [
+      {
+        note: data.note,
+        updatedAt: data.updatedAt || new Date().toISOString(),
+      },
+    ];
+  }
+
+  if (!notes.length) {
+    return message.reply('Belum ada memory yang di save.');
+  }
+
+  const lines = notes
+    .map((n, idx) => {
+      const date = new Date(n.updatedAt).toLocaleString('id-ID');
+      return `**${idx + 1}.** ${n.note} (update: ${date})`;
+    })
+    .join('\n');
+
+  return message.reply(
+    `Yang gwe inget tentang lu (${message.author.tag}):\n${lines}`);
+  }
+
+  if (sub === 'forget' || sub === 'forg') { // Forget Memory
+  const memory = await loadMemory();
+  const userId = message.author.id;
+  const data = memory[userId];
+
+  if (!data) {
+    return message.reply('Gwe gak inget apa-apa tentang lu, jadi gak ada yang bisa dihapus.');
+  }
+
+  let notes = [];
+  if (Array.isArray(data.notes)) {
+    notes = data.notes;
+  } else if (data.note) {
+    notes = [
+      {
+        note: data.note,
+        updatedAt: data.updatedAt || new Date().toISOString(),
+      },
+    ];
+  }
+
+  const arg = args[0]?.toLowerCase();
+
+  if (arg === 'all') {
+    delete memory[userId];
+    await saveMemory(memory);
+    return message.reply('Semua memory tentang lu udah gue hapus. 🧹');
+  }
+
+  const index = parseInt(arg, 10);
+
+  if (!index || index < 1 || index > notes.length) {
+    return message.reply(
+      `Pilih memory nomor berapa yang mau dihapus (1-${notes.length}), atau pake:\n` +
+      '`d!forget all` buat hapus semuanya.'
+    );
+  }
+
+  const removed = notes.splice(index - 1, 1)[0];
+
+  if (notes.length === 0) {
+    delete memory[userId];
+  } else {
+    memory[userId] = {
+      username: data.username,
+      notes,
+    };
+  }
+
+  await saveMemory(memory);
+
+  return message.reply(
+    `Oke, memory nomor ${index} udah gwe hapus:\n> ${removed.note}`);
+  }
+
+  if (sub === 'status' || sub === 'stats') { // System status
+  // CPU load average → hitung simpel dalam %
+  const load = os.loadavg()[0]; // load 1 menit
+  const cpuCount = os.cpus().length;
+  const cpuPercent = Math.min((load / cpuCount) * 100, 100).toFixed(1);
+
+  // memory
+  const totalMem = os.totalmem();
+  const freeMem = os.freemem();
+  const usedMem = totalMem - freeMem;
+
+  // uptime bot
+  const botUptimeSec = process.uptime();
+  const botHours = Math.floor(botUptimeSec / 3600);
+  const botMinutes = Math.floor((botUptimeSec % 3600) / 60);
+  const botSeconds = Math.floor(botUptimeSec % 60);
+
+  // uptime PC
+  const pcUptimeSec = os.uptime();
+  const pcHours = Math.floor(pcUptimeSec / 3600);
+  const pcMinutes = Math.floor((pcUptimeSec % 3600) / 60);
+  const pcSeconds = Math.floor(pcUptimeSec % 60);
+
+  const formatBytes = (bytes) => {
+    const gb = bytes / 1024 / 1024 / 1024;
+    return gb.toFixed(2) + 'GB';
+  };
+
+  return message.reply(
+  `**System Status**\n` +
+  `> **CPU Load:** ${cpuPercent}%\n` +
+  `> **RAM Usage:** ${formatBytes(usedMem)} / ${formatBytes(totalMem)}\n` +
+  `> **Bot Uptime:** ${botHours}j ${botMinutes}m ${botSeconds}d\n` +
+  `> **PC Uptime:** ${pcHours}j ${pcMinutes}m ${pcSeconds}d`
+  );
+  }
+
+  if (sub === 'weather' || sub === 'w') { // Weather info
+  const location = args.join(' ').trim();
+  console.log("WEATHER KEY:", process.env.WEATHER_API_KEY);
+
+  if (!location) {
+    return message.reply('Mau cek cuaca mana? Contoh: `d!weather jakarta`');
+  }
+
+  const apiKey = process.env.WEATHER_API_KEY; // pastiin ada
+
+  try {
+    const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(location)}&appid=${apiKey}&units=metric&lang=id`;
+    
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (!data || data.cod !== 200) {
+      console.log("[Weather Debug Response]", data);
+      return message.reply('Gak bisa ambil data cuacanya, kotanya mungkin salah atau API key bermasalah.');
+    }
+
+    const name = data.name;
+    const temp = data.main.temp;
+    const feels = data.main.feels_like;
+    const hum = data.main.humidity;
+    const wind = data.wind.speed;
+    const desc = data.weather[0].description;
+
+    return message.reply(
+      `**🌤 Cuaca: ${name}**\n` +
+      `> **Suhu:** ${temp}°C (kerasa: ${feels}°C)\n` +
+      `> **Kelembaban:** ${hum}%\n` +
+      `> **Angin:** ${wind} m/s\n` +
+      `> **Keterangan:** ${desc}`
+    );
+
+  } catch (err) {
+    console.error('Weather error:', err);
+    return message.reply('Server cuaca nya lagi error, coba sebentar lagi.');
+    }
+  }
+
+  if (sub === 'choice' || sub === 'pilih') { // d!choice
+  // Ambil full text setelah prefix, biar newline tetep kebaca
+  const full = message.content.slice(prefix.length).trim(); // "choice\noption1\noption2"
+  const afterCommand = full.slice(sub.length).trim();       // "option1\noption2..."
+
+  if (!afterCommand) {
+    return message.reply(
+      'Kasih pilihan dong.\n' +
+      'Contoh:\n' +
+      '```d!choice\n' +
+      'tidur\n' +
+      'ngoding 8 jam\n' +
+      'scroll tiktok```'
+    );
+  }
+
+  // Split per baris, buang kosong
+  const options = afterCommand
+    .split('\n')
+    .map(o => o.trim())
+    .filter(o => o.length > 0);
+
+  if (options.length < 2) {
+    return message.reply('Minimal kasih 2 pilihan lah, gimana gwe mau milih kalo cuma 1');
+  }
+
+  try {
+    const listText = options
+      .map((opt, i) => `${i + 1}. ${opt}`)
+      .join('\n');
+
+    const completion = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Kamu adalah bot Discord bernama Ditos. Gaya bicara santai, campur Indonesia dan sedikit English. ' +
+              'Suka ngejokes, konyol, kadang nyolot dikit tapi tetap bantu jelasin dengan jelas dan ringkas. Jangan terlalu panjang, jangan formal. ' +
+              'Kamu juga jarang tetapi akan menggunakan kata seperti "Bjirlah, anjeng, biji" Kamu akan berbicara seadanya dan frontal (Contoh: "Lah gwa mah vergil, lah elu mirror demon", "Goofy ass looking ahh". ' +
+              'Kamu tidak akan menggunakan emoji. Kamu juga akan memberi informasi sesingkat mungkin. ' +
+              'PENTING: Kalo ada text "[Ada gambar: ...]" di pesan user, itu artinya user kirim gambar dan kamu bisa "liat" gambar tersebut lewat deskripsi yang dikasih. ' +
+              'Jangan bilang kamu gak bisa liat gambar, langsung aja respon sesuai deskripsinya. Jangan repetitif, jangan keseringan pake kata-kata yang "lah gw mah vergil" dll, sesekali aja biar terasa moody. ' +
+              'Jangan campur-campur panggilan "Aku, Kamu" sama "lo, Gwe", kalo mau pakai "Aku" lawan katanya itu "Kamu" bukan "Gwe" dan sebaliknya.',
+        },
+        {
+          role: 'user',
+          content:
+            'Gue lagi bingung milih salah satu dari pilihan ini:\n' +
+            listText +
+            '\n\nPilih satu yang paling cocok buat gue sekarang, terus jelasin singkat kenapa.'
+        }
+      ],
+      temperature: 0.8,
+      max_completion_tokens: 200
+    });
+
+    const replyText = completion.choices?.[0]?.message?.content?.trim();
+
+    if (!replyText) {
+      return message.reply('Ai-nya lagi bengong, coba ulangi lagi pilihan lu barusan.');
+    }
+
+    // Tampilkan juga list pilihannya biar jelas
+    return message.reply(
+      `**🎲 Pilihan gwej:**\n${replyText}\n\n` +
+      '```' + listText + '```'
+    );
+  } catch (err) {
+    console.error('Groq choice error:', err);
+    return message.reply('Ai-nya lagi error pas milih pilihan, coba lagi bentar lagi ya.');
+    }
+  }
+  
     return message.reply('Salah command luwh, coba `d!help` buat liat list command gwej');
   }
 
