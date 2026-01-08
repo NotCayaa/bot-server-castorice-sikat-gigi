@@ -82,7 +82,7 @@ module.exports = {
         const botStatus = [
             'd!help',
             'akulah mister D',
-            `with ${client.users.cache.size} members!`,
+            `with ${client.users.cache.size} members in ${client.guilds.cache.size} servers!`,
         ];
 
         setInterval(() => {
