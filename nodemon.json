@@ -1,0 +1,14 @@
+{
+    "ignore": [
+        "memory.json",
+        "trivia-score.json",
+        "reminders.json",
+        "settings.json",
+        "Log/**/*",
+        "temp/**/*"
+    ],
+    "watch": [
+        "index.js"
+    ],
+    "ext": "js"
+}

@@ -3,7 +3,7 @@ const { spawn } = require("child_process");
 function start() {
   console.log("Starting Bot...");
 
-  const child = spawn("node", ["index.js"], {
+  const child = spawn("node", ["src/index.js"], {
     stdio: "inherit",
   });
 
