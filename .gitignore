@@ -6,3 +6,7 @@ reminders.json
 Log/
 temp/
 trivia-score.json
+
+# Legacy / User Data
+index.js
+src/data/songCache.json
