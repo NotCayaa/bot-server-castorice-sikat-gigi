@@ -24,12 +24,10 @@ class MusicService {
         let results = [];
 
         try {
-            // --- ATTEMPT 1: Standard Search ---
             const res = await ytSearch(searchQuery);
             if (res && res.videos.length > 0) {
                 results = res.videos;
             } else {
-                // --- ATTEMPT 2: Fallback to "Official" ---
                 console.log('[MusicService] Fallback to Official...');
                 const resOfficial = await ytSearch(`${searchQuery} official`);
                 if (resOfficial && resOfficial.videos.length > 0) {
@@ -38,7 +36,6 @@ class MusicService {
             }
 
             if (results.length === 0) return null;
-
             // --- SCORING & FILTERING ---
             const targetTitle = baseQuery;
             const scored = results.map(video => {
@@ -46,7 +43,6 @@ class MusicService {
                 const title = this.cleanString(video.title);
                 const channel = this.cleanString(video.author.name);
                 const rawTitle = video.title.toLowerCase();
-
                 // Base Relevance (Token based)
                 const targetTokens = targetTitle.split(' ');
                 const titleTokens = title.split(' ');
@@ -121,7 +117,7 @@ class MusicService {
                 noCheckCertificates: true,
                 preferFreeFormats: true,
                 youtubeSkipDashManifest: true,
-                forceIpv4: true // [CRITICAL] Fix for IPv6 throttling
+                forceIpv4: true
             });
 
             // Extract best audio format
