@@ -27,29 +27,61 @@ async function playNext(guildId) { // Auto play musik selanjutnya
 
     const song = queue.songs[0];
     queue.nowPlaying = song;
-    if (!song) {
-        queue.player.stop();
-        queue.connection.destroy();
-        musicQueues.delete(guildId);
-        return;
-    }
 
     try {
-        const subprocess = ytdlExec.exec(song.url, {
-            output: '-',
-            format: 'bestaudio[ext=m4a]/bestaudio',
-        });
-
-        subprocess.stderr.on('data', (data) => {
-            // console.log('[yt-dlp]', data.toString()); // Optional logging
-        });
-
-        // [RACE CONDITION FIX]
-        // Kalau queue dihapus waktu lagi download (misal user ketik d!stop), cancel.
-        if (!musicQueues.has(guildId)) {
-            subprocess.kill(); // Kill process if possible
-            return;
+        // [VALIDATION] Ensure videoId exists
+        if (!song.videoId && song.url) {
+            if (song.url.includes('v=')) song.videoId = song.url.split('v=')[1].split('&')[0];
+            else if (song.url.includes('youtu.be/')) song.videoId = song.url.split('youtu.be/')[1].split('?')[0];
         }
+
+        if (!song.videoId) throw new Error("Could not extract Video ID");
+
+        console.log(`[Music] Streaming: ${song.title}`);
+        const streamUrl = await musicService.getStreamUrl(song.videoId);
+        const headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Referer': 'https://www.youtube.com/',
+            'Origin': 'https://www.youtube.com'
+        };
+
+        const response = await fetch(streamUrl, { headers });
+
+        if (!response.ok) {
+            if (response.status === 403) {
+                console.warn("[Music] 403 Forbidden on Cached URL. Invalidating and Retrying...");
+                musicCache.streamCache.delete(song.videoId); // Manually clear
+                throw new Error("Stream 403 Forbidden");
+            }
+            throw new Error(`Stream fetch failed: ${response.status}`);
+        }
+
+        const { Readable } = require('stream');
+        let inputStream = Readable.fromWeb(response.body);
+
+        // FFmpeg Logic: Decode input -> Encode Opus -> Output Ogg
+        const child = spawn(ffmpegPath, [
+            '-i', 'pipe:0',
+            '-analyzeduration', '0',
+            '-loglevel', 'warning',
+            '-c:a', 'libopus',   // Encode to Opus
+            '-f', 'opus',        // Ogg Opus container
+            '-ar', '48000',
+            '-ac', '2',
+            'pipe:1'
+        ], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+        inputStream.pipe(child.stdin);
+
+        // [FIX] Prevent EPIPE crash if FFmpeg exits early
+        child.stdin.on('error', (err) => {
+            if (err.code === 'EPIPE') return;
+            console.error('[FFmpeg Stdin] Error:', err);
+        });
+
+        inputStream.on('error', err => {
+            try { child.kill(); } catch (e) { }
+        });
 
         const resource = createAudioResource(subprocess.stdout, {
             inputType: StreamType.Arbitrary,

@@ -46,11 +46,21 @@ module.exports = {
         if (id === "music_stop") {
             await interaction.reply("⏹ Stopped music and cleared queue.");
             data.songs = [];
+            data.nowPlaying = null;
+            data.stopOnIdle = true;
             data.player.stop();
-            data.connection.destroy();
-            musicQueues.delete(guildId);
 
-            try { await interaction.message.delete().catch(() => { }); } catch (e) { }
+            await interaction.reply({
+                content: `⏹ Musik distop dan antrian dihapus oleh ${interaction.user.username}.`
+            });
+
+            const embed = generateMusicEmbed(guildId);
+            if (embed) {
+                return interaction.message.edit({
+                    embeds: [embed],
+                    components: getMusicButtons(guildId)
+                }).catch(() => { });
+            }
             return;
         }
 
@@ -63,18 +73,19 @@ module.exports = {
         }
 
         if (id === "music_vol_up") {
-            data.volume = Math.min((data.volume || 1) + 0.1, 2); // max 200%
-            data.player.state.resource.volume.setVolume(data.volume);
-            // Fallthrough to update embed (don't reply to avoid double interaction)
+            data.volume = Math.min((data.volume || 1) + 0.1, 2);
+            if (data.player.state.resource) {
+                data.player.state.resource.volume.setVolume(data.volume);
+            }
         }
 
         if (id === "music_vol_down") {
             data.volume = Math.max((data.volume || 1) - 0.1, 0); // min 0%
-            data.player.state.resource.volume.setVolume(data.volume);
-            // Fallthrough to update embed
+            if (data.player.state.resource) {
+                data.player.state.resource.volume.setVolume(data.volume);
+            }
         }
 
-        // Update embed setelah action
         const embed = generateMusicEmbed(guildId);
         if (embed) {
             return interaction.update({
@@ -83,7 +94,6 @@ module.exports = {
             });
         }
 
-        // Default cleanup if embed fails
         try {
             if (!interaction.replied && !interaction.deferred) {
                 return interaction.update({ components: [] }).catch(() => { });

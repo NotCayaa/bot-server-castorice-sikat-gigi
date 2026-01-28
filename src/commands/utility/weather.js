@@ -9,8 +9,6 @@ module.exports = {
     aliases: ['weather'],
     async execute(message, args, client) {
         const location = args.join(' ').trim();
-        // console.log("WEATHER KEY:", process.env.WEATHER_API_KEY); // Optional debug, preserved from original? Original had it.
-
         if (!location) {
             return message.reply('Mau cek cuaca mana? Contoh: `t!weather jakarta`');
         }

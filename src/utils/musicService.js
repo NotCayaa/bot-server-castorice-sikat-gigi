@@ -120,24 +120,14 @@ class MusicService {
                 forceIpv4: true
             });
 
-            // Extract best audio format
-            // yt-dlp usually returns 'best' formats in formats list, but we want audio
-            // The JSON 'url' property is often the video+audio or just video.
-            // We need to find the audio-only format if possible.
-
             let streamUrl = null;
-
-            // Prioritize opus/m4a audio only
             const formats = output.formats || [];
-            // Sort by ABR (Audio Bitrate) desc
             formats.sort((a, b) => (b.abr || 0) - (a.abr || 0));
-
             const audioOnly = formats.find(f => f.acodec !== 'none' && f.vcodec === 'none');
 
             if (audioOnly) {
                 streamUrl = audioOnly.url;
             } else {
-                // Fallback to whatever URL is top level or best matching
                 streamUrl = output.url;
             }
 
