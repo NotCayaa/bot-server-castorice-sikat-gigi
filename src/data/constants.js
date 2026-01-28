@@ -31,7 +31,7 @@ const COMMAND_LIST = {
     'joke': 'Random dad jokes',
     'ui': 'Info lengkap tentang user',
     'si': 'Info tentang server',
-    'clear': 'Clear history chat dengan bot. Tambahin channel/ch buat clear history channel',
+    'clear': 'Clear history chat dengan bot',
     'rem': 'Saved Memory kaya di ChatGPT',
     'rec': 'Ngecek Saved Memory',
     'forg': 'Menghapus Saved Memory, bisa hapus all atau berdasarkan nomor (d!rec buat liat nomornya)',

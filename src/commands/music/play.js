@@ -4,12 +4,14 @@ const {
     NoSubscriberBehavior,
     AudioPlayerStatus
 } = require('@discordjs/voice');
-const ytdlExec = require('yt-dlp-exec'); // [CHANGED] Use yt-dlp
+const ytdlExec = require('yt-dlp-exec'); // [RESTORED] Needed for playlists
 const ytSearch = require('yt-search');
 const { musicQueues } = require('../../data/state');
 const { playNext } = require('../../utils/voiceManager');
 const { spotifyApi } = require('../../utils/spotifyManager');
 const { generateMusicEmbed, getMusicButtons } = require('../../utils/uiHelpers');
+const musicService = require('../../utils/musicService');
+const musicCache = require('../../utils/musicCache');
 
 module.exports = {
     name: 'play',
@@ -135,17 +137,30 @@ module.exports = {
                 if (type === 'track') {
                     const trackData = await spotifyApi.getTrack(id);
                     const track = trackData.body;
+                    const spotifyId = track.id;
                     const searchQuery = `${track.name} ${track.artists.map(a => a.name).join(' ')}`;
-                    const res = await ytSearch(searchQuery);
-                    const video = res.videos && res.videos.length ? res.videos[0] : null;
 
-                    if (!video) {
-                        return message.reply(`Gak nemu "${searchQuery}" di YouTube`);
+                    // [CACHE CHECK FIRST]
+                    const cachedVideoId = musicCache.getLearnedMatch(spotifyId);
+
+                    if (cachedVideoId) {
+                        console.log(`[Spotify→Cache Hit] ${spotifyId} -> ${cachedVideoId}`);
+                        url = `https://www.youtube.com/watch?v=${cachedVideoId}`;
+                        title = `${track.name} - ${track.artists[0].name}`;
+                    } else {
+                        const res = await musicService.searchTrack(searchQuery);
+
+                        if (!res) {
+                            return message.reply(`Gak nemu "${searchQuery}" di YouTube`);
+                        }
+
+                        url = res.url;
+                        title = `${track.name} - ${track.artists[0].name}`;
+
+                        // [SAVE TO CACHE]
+                        musicCache.setLearnedMatch(spotifyId, res.videoId);
+                        console.log(`[Spotify→YT] Track: ${searchQuery} → ${res.title} (Cached)`);
                     }
-
-                    url = video.url;
-                    title = `${track.name} - ${track.artists[0].name}`;
-                    console.log(`[Spotify→YT] Track: ${searchQuery} → ${title}`);
                 }
                 // PLAYLIST
                 else if (type === 'playlist') {
@@ -204,6 +219,7 @@ module.exports = {
                                 title: simpleTitle,
                                 url: null, // Unresolved
                                 isResolved: false,
+                                spotifyId: track.id, // [SPOTIFY CACHE KEY]
                                 requestedBy: message.author.tag,
                             });
                         }
@@ -271,6 +287,7 @@ module.exports = {
                             title: simpleTitle,
                             url: null,
                             isResolved: false,
+                            spotifyId: track.id, // [SPOTIFY CACHE KEY]
                             requestedBy: message.author.tag,
                         });
                     }
@@ -320,13 +337,13 @@ module.exports = {
                     }
                 } else {
                     // Search
-                    const res = await ytSearch(query);
-                    const video = res.videos && res.videos.length ? res.videos[0] : null;
-                    if (!video) {
-                        return message.reply('Gak nemu lagu yang cocok');
+                    // Use MusicService for consistent scoring
+                    const res = await musicService.searchTrack(query);
+                    if (!res) {
+                        return message.reply(`Gak nemu lagu yang cocok`);
                     }
-                    url = video.url;
-                    title = video.title;
+                    url = res.url;
+                    title = res.title;
                 }
             }
         } catch (err) {
@@ -365,15 +382,7 @@ module.exports = {
 
             musicQueues.set(guildId, queue);
 
-            player.on(AudioPlayerStatus.Playing, () => {
-                const embed = generateMusicEmbed(guildId);
-                if (embed) {
-                    queue.textChannel.send({
-                        embeds: [embed],
-                        components: getMusicButtons(guildId)
-                    }).catch(console.error);
-                }
-            });
+            // Reminder: Embed sent in voiceManager on play
 
             player.on(AudioPlayerStatus.Idle, () => {
                 queue.songs.shift();
@@ -393,6 +402,42 @@ module.exports = {
 
         if (wasEmpty) {
             playNext(guildId);
+        } else {
+            // [PROACTIVE PREFETCH]
+            // If we just added a song at index 1 (meaning it's Next), and we are playing index 0,
+            // we should prefetch it now instead of waiting for current song to end.
+            if (queue.songs.length === 2 && !queue.songs[1].isResolved) {
+                const nextSong = queue.songs[1];
+                console.log(`[Music] Proactive Prefetch: ${nextSong.title}`);
+                nextSong.isResolving = true;
+
+                // We don't await this, let it run in background.
+                // We use the resolveSong from voiceManager but it's not exported.
+                // Actually, play.js doesn't have access to resolveSong directly from voiceManager unless we export it?
+                // `playNext` is exported. `resolveSong` is NOT.
+                // We should export resolveSong or just let playNext handle it?
+                // No, playNext only handling it when song finishes is the problem.
+                // Let's import musicService and resolve it directly here, updating the object reference.
+
+                musicService.searchTrack(nextSong.title).then(res => {
+                    if (res) {
+                        nextSong.url = res.url;
+                        nextSong.videoId = res.videoId;
+                        nextSong.title = res.title;
+                        nextSong.isResolved = true;
+
+                        // Update cache
+                        if (nextSong.spotifyId) {
+                            musicCache.setLearnedMatch(nextSong.spotifyId, res.videoId);
+                        }
+
+                        // Also warm up stream cache?
+                        musicService.getStreamUrl(res.videoId).catch(console.error);
+
+                        console.log(`[Music] Proactive Prefetch DONE: ${nextSong.title}`);
+                    }
+                }).catch(console.error);
+            }
         }
     },
 };

@@ -17,7 +17,7 @@ module.exports = {
 
         const header =
             `**Ditos Help Menu**\n` +
-            `Version   : 1.0\n` +
+            `Version   : 2.0\n` +
             `Prefix    : ${prefix}\n` +
             `Developer : Caya8205 & AI\n\n`;
 

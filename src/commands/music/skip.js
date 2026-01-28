@@ -1,5 +1,6 @@
 const { musicQueues } = require('../../data/state');
 const { playNext } = require('../../utils/voiceManager');
+const { generateMusicEmbed, getMusicButtons } = require('../../utils/uiHelpers');
 
 module.exports = {
     name: 'skip',
